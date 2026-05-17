@@ -1,4 +1,5 @@
 const Product = require('../models/Product');
+const Vendor = require('../models/Vendor');
 const { uploadToCloudinary } = require('../middleware/upload');
 
 exports.getProducts = async (req, res) => {
@@ -27,7 +28,12 @@ exports.getProductById = async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product) return res.status(404).json({ message: 'Product not found' });
   await Product.incrementView(product._id);
-  res.json({ ...product, viewCount: product.viewCount + 1 });
+  let vendor = null;
+  if (product.vendorId) {
+    const v = await Vendor.findById(product.vendorId).catch(() => null);
+    if (v && v.status === 'approved') vendor = { _id: v._id, storeName: v.storeName, logo: v.logo || '' };
+  }
+  res.json({ ...product, viewCount: product.viewCount + 1, vendor });
 };
 
 exports.getProductBySlug = async (req, res) => {
@@ -46,6 +52,8 @@ exports.createProduct = async (req, res) => {
   }
   if (typeof data.tags === 'string') data.tags = data.tags.split(',').map((t) => t.trim()).filter(Boolean);
   if (typeof data.seoKeywords === 'string') data.seoKeywords = data.seoKeywords.split(',').map((t) => t.trim()).filter(Boolean);
+  // Attach vendor ownership when created by a vendor (not admin)
+  if (req.vendor) data.vendorId = req.vendor._id;
   const product = await Product.create(data);
   res.status(201).json(product);
 };
@@ -53,6 +61,8 @@ exports.createProduct = async (req, res) => {
 exports.updateProduct = async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product) return res.status(404).json({ message: 'Product not found' });
+  if (req.vendor && String(product.vendorId) !== String(req.vendor._id))
+    return res.status(403).json({ message: 'You can only edit your own products' });
 
   const data = { ...req.body };
   if (req.files && req.files.length > 0) {
@@ -70,6 +80,8 @@ exports.updateProduct = async (req, res) => {
 exports.deleteProduct = async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product) return res.status(404).json({ message: 'Product not found' });
+  if (req.vendor && String(product.vendorId) !== String(req.vendor._id))
+    return res.status(403).json({ message: 'You can only delete your own products' });
   await Product.softDelete(req.params.id);
   res.json({ message: 'Product removed' });
 };

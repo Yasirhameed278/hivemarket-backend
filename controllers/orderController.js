@@ -1,6 +1,8 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const User = require('../models/User');
+const Coupon = require('../models/Coupon');
+const Vendor = require('../models/Vendor');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 exports.createOrder = async (req, res) => {
@@ -30,25 +32,37 @@ exports.createOrder = async (req, res) => {
     if (!product) return res.status(404).json({ message: `Product ${item.product} not found` });
     if (product.stock < item.quantity) return res.status(400).json({ message: `Insufficient stock for ${product.name}` });
 
+    const unitPrice = product.effectivePrice ?? product.price;
     orderItems.push({
       product: product._id,
       name: product.name,
       image: product.thumbnail,
-      price: product.price,
+      price: unitPrice,
       quantity: item.quantity,
       variant: item.variant || '',
+      vendorId: product.vendorId || null,
     });
-    itemsPrice += product.price * item.quantity;
+    itemsPrice += unitPrice * item.quantity;
 
     await Product.adjustStock(product._id, -Number(item.quantity), Number(item.quantity));
   }
 
-  let discount = 0;
-  if (couponCode === 'SAVE10') discount = itemsPrice * 0.1;
-  if (couponCode === 'SAVE20') discount = itemsPrice * 0.2;
-  if (couponCode === 'FREESHIP') discount = 0;
-
   const shippingPrice = itemsPrice > 100 ? 0 : 9.99;
+
+  let discount = 0;
+  if (couponCode) {
+    const coupon = await Coupon.findByCode(couponCode);
+    if (
+      coupon &&
+      coupon.isActive &&
+      (!coupon.expiresAt || new Date(coupon.expiresAt) > new Date()) &&
+      (coupon.usageLimit === 0 || coupon.usedCount < coupon.usageLimit) &&
+      (coupon.minOrder === 0 || itemsPrice >= coupon.minOrder)
+    ) {
+      discount = Coupon.calcDiscount(coupon, itemsPrice, shippingPrice);
+      await Coupon.incrementUsed(coupon._id);
+    }
+  }
   const taxPrice = Math.round(itemsPrice * 0.08 * 100) / 100;
   const totalPrice = Math.round((itemsPrice + shippingPrice + taxPrice - discount) * 100) / 100;
 
@@ -87,6 +101,24 @@ exports.createOrder = async (req, res) => {
 
   // Clear user cart
   await User.updateById(req.user._id, { cart: [] });
+
+  // Credit vendor earnings (fire-and-forget — don't block the response)
+  if (!isCOD) {
+    const vendorMap = new Map();
+    for (const item of orderItems) {
+      if (!item.vendorId) continue;
+      const vendor = await Vendor.findById(item.vendorId).catch(() => null);
+      if (!vendor) continue;
+      const vendorShare = item.price * item.quantity * (1 - vendor.commissionRate / 100);
+      const current = vendorMap.get(item.vendorId) || { id: item.vendorId, amount: 0, sales: 0 };
+      current.amount += vendorShare;
+      current.sales += item.quantity;
+      vendorMap.set(item.vendorId, current);
+    }
+    for (const entry of vendorMap.values()) {
+      await Vendor.addEarnings(entry.id, entry.amount, entry.sales).catch(() => {});
+    }
+  }
 
   // Inline a minimal "user" object for compatibility with the populated shape.
   const userObj = await User.findById(req.user._id);

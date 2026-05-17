@@ -5,6 +5,11 @@ const Product = require('../models/Product');
 const User = require('../models/User');
 const Order = require('../models/Order');
 const { getClient } = require('../config/db');
+const vendorCtrl = require('../controllers/vendorController');
+
+// Vendor management
+router.get('/vendors', protect, admin, vendorCtrl.listVendors);
+router.put('/vendors/:id/status', protect, admin, vendorCtrl.updateVendorStatus);
 
 // Admin dashboard overview
 router.get('/stats', protect, admin, async (req, res) => {

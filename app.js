@@ -57,6 +57,8 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/chatbot', require('./routes/chatbot'));
 app.use('/api/payment', require('./routes/payment'));
+app.use('/api/coupons', require('./routes/coupons'));
+app.use('/api/vendors', require('./routes/vendors'));
 
 app.get('/api/health', (req, res) =>
   res.json({ status: 'OK', time: new Date(), runtime: process.env.VERCEL ? 'vercel' : 'node' })

@@ -85,6 +85,8 @@ create table if not exists products (
   sold_count        integer not null default 0,
   weight            numeric(10,2) default 0,
   dimensions        jsonb default '{}'::jsonb,
+  sale_price        numeric(12,2) not null default 0,
+  sale_ends_at      timestamptz,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now()
 );
@@ -151,6 +153,54 @@ create trigger trg_products_updated_at before update on products for each row ex
 
 drop trigger if exists trg_orders_updated_at on orders;
 create trigger trg_orders_updated_at  before update on orders   for each row execute function set_updated_at();
+
+-- ─── Vendors ─────────────────────────────────────────────────────────
+create table if not exists vendors (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null unique references users(id) on delete cascade,
+  store_name      text not null,
+  description     text not null default '',
+  logo            text default '',
+  commission_rate numeric(5,2) not null default 10,
+  status          text not null default 'pending'
+                    check (status in ('pending','approved','suspended')),
+  total_earnings  numeric(12,2) not null default 0,
+  total_sales     int not null default 0,
+  bank_details    jsonb default '{}'::jsonb,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create index if not exists idx_vendors_user_id on vendors(user_id);
+create index if not exists idx_vendors_status on vendors(status);
+
+drop trigger if exists trg_vendors_updated_at on vendors;
+create trigger trg_vendors_updated_at before update on vendors for each row execute function set_updated_at();
+
+-- vendor_id on products (nullable — platform products have no vendor)
+alter table products add column if not exists vendor_id uuid references vendors(id) on delete set null;
+create index if not exists idx_products_vendor_id on products(vendor_id);
+
+-- ─── Coupons ─────────────────────────────────────────────────────────
+create table if not exists coupons (
+  id            uuid primary key default gen_random_uuid(),
+  code          text unique not null,
+  type          text not null check (type in ('percent', 'flat', 'freeship')),
+  value         numeric(12,2) not null default 0,
+  min_order     numeric(12,2) not null default 0,
+  usage_limit   int not null default 0,   -- 0 = unlimited
+  used_count    int not null default 0,
+  expires_at    timestamptz,
+  is_active     boolean not null default true,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+create index if not exists idx_coupons_code on coupons(code);
+create index if not exists idx_coupons_is_active on coupons(is_active);
+
+drop trigger if exists trg_coupons_updated_at on coupons;
+create trigger trg_coupons_updated_at before update on coupons for each row execute function set_updated_at();
 
 -- ─── Atomic stock adjustment helper (RPC) ────────────────────────────
 create or replace function adjust_product_stock(p_id uuid, p_qty int, p_sold_delta int)

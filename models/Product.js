@@ -6,6 +6,11 @@ const TABLE = 'products';
 // ─── Row <→ API mapping ──────────────────────────────────────────────
 const rowToProduct = (row) => {
   if (!row) return null;
+  const now = new Date();
+  const saleActive =
+    Number(row.sale_price || 0) > 0 &&
+    row.sale_ends_at &&
+    new Date(row.sale_ends_at) > now;
   return {
     _id: row.id,
     id: row.id,
@@ -15,6 +20,10 @@ const rowToProduct = (row) => {
     shortDescription: row.short_description || '',
     price: Number(row.price),
     comparePrice: Number(row.compare_price || 0),
+    salePrice: Number(row.sale_price || 0),
+    saleEndsAt: row.sale_ends_at || null,
+    onSale: saleActive,
+    effectivePrice: saleActive ? Number(row.sale_price) : Number(row.price),
     category: row.category,
     subcategory: row.subcategory || '',
     brand: row.brand || '',
@@ -37,6 +46,7 @@ const rowToProduct = (row) => {
     soldCount: row.sold_count || 0,
     weight: Number(row.weight || 0),
     dimensions: row.dimensions || {},
+    vendorId: row.vendor_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -72,6 +82,9 @@ const productToRow = (p) => {
   if (p.soldCount !== undefined) row.sold_count = Number(p.soldCount);
   if (p.weight !== undefined) row.weight = Number(p.weight);
   if (p.dimensions !== undefined) row.dimensions = p.dimensions;
+  if (p.salePrice !== undefined) row.sale_price = Number(p.salePrice) || 0;
+  if (p.saleEndsAt !== undefined) row.sale_ends_at = p.saleEndsAt || null;
+  if (p.vendorId !== undefined) row.vendor_id = p.vendorId || null;
   return row;
 };
 
@@ -137,6 +150,7 @@ async function list({
   featured,
   ids,
   excludeId,
+  vendorId,
   sort = 'newest',
   page = 1,
   limit = 12,
@@ -146,6 +160,7 @@ async function list({
   let q = sb.from(TABLE).select(select, { count: 'exact' });
 
   if (isActive !== undefined) q = q.eq('is_active', isActive);
+  if (vendorId) q = q.eq('vendor_id', vendorId);
   if (category) q = q.ilike('category', `%${category}%`);
   if (brand) q = q.ilike('brand', `%${brand}%`);
   if (minPrice !== undefined && minPrice !== null && minPrice !== '') q = q.gte('price', Number(minPrice));
